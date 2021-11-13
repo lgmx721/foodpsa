@@ -1,0 +1,123 @@
+---
+title: "preliminary_mlm.Rmd"
+author: "Mingxuan Liu7"
+date: "11/12/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Item level IV1: visual cues (2 levels: healthy food and junk food)
+Item level IV2: verbal cues (2 levels: encouragement frame and discouragement frame)
+Equation for the appetitive response (DV, indexed by oo); 
+$$
+\begin{aligned}
+  \text{oo}_{i(j,k)}) & = \gamma_{00} \\ 
+                        & + \gamma_{10} \text{visual}_{k} + \gamma_{20} \text{verbal}_{k} + \gamma_{30} \text{time}_{k}\\
+                        & + \gamma_{40} \text{visual}_{k} \times \text{time}_{k} + \gamma_{50} \text{verbal}_{k} \times \text{time}_{k} + \gamma_{60} \text{visual}_{k} \times \text{verbal}_{k}+ \gamma_{70} \text{visual}_{k} \times \text{verbal}_{k}\times \text{time}_{k}\\
+                        & + u_{0j} + u_{1j} \text{visual}_{k} + u_{2j} \text{verbal}_{k} + u_{3j} \text{time}_{k} +  u_{4j} \text{visual}_{k} \times \text{verbal}_{k}+ u_{5j} \text{visual}_{k} \times \text{verbal}_{k}\times \text{time}_{k} \\
+                        & + e_{ijk}
+\end{aligned}
+$$
+
+
+
+```{r load-pkg, message=FALSE}
+# To install a package, run the following ONCE (and only once on your computer)
+# install.packages("psych")  
+library(here)  # makes reading data more consistent
+library(tidyverse)  # for data manipulation and plotting
+library(haven)  # for importing SPSS/SAS/Stata data
+library(lme4)  # for multilevel analysis
+library(lmerTest)  # for testing coefficients
+library(MuMIn)  # for R^2
+library(sjPlot)  # for plotting effects
+library(emmeans)  # for marginal means
+library(modelsummary)  # for making tables
+theme_set(theme_bw())  # Theme; just my personal preference
+```
+
+、
+
+```{r import data}
+oo <- read_sav(here("data_files", "oo_survey.sav"))
+oo
+colnames(oo)
+```
+8 items:
+h_do_drink
+h_do_snack
+h_dont_drink
+h_dont_snack
+j_do_drink
+j_do_snack
+j_dont_drink
+j_dont_snack
+time1*6
+time2*12
+time3*6
+
+```{r show-labels}
+# Show the variable labels
+cbind(
+    map(oo, attr, "label")
+)
+```
+
+```{r wide to long, echo=FALSE}
+
+oo_long <- oo %>%
+  select(2, 9:20, 33:44, 57:68, 81:92, 105:116, 129:140, 153:164, 177:188, 195:232)%>%
+  pivot_longer(
+    c(h_do_drink_t1:h_do_drink_t12, j_do_snack_t1:j_do_snack_t12,h_dont_snack_t1:h_dont_snack_t12,j_dont_drink_t1:j_dont_drink_t12, h_do_snack_t1:h_do_snack_t12, j_do_drink_t1:j_do_drink_t12, h_dont_drink_t1:h_dont_drink_t12, j_dont_snack_t1:j_dont_snack_t12),  # variables that are repeated measures
+    # Convert 8 columns to 3: 2 columns each for anti/read (.value), and
+    # one column for time
+    names_to = c("viscue", "verbcue", "type", "time"),
+    # Extract the names "anti"/"read" from the names of the variables for the
+    # value columns, and then the number to the "time" column
+   names_pattern = "(h|j)_(do|dont)_(drink|snack)_t(.*)",
+    # Convert the "time" column to integers
+    names_transform = list(time = as.integer)
+  )%>%
+unite(item, viscue, verbcue, type, remove = FALSE)
+oo_long 
+```
+
+```{r models, echo=FALSE}
+m1 <- lmer(value ~  (1 | id) + (1 | item),
+           data = oo_long)
+ranova(m1) #all sig.
+m2 <- lmer(value ~ viscue * verbcue * time + (viscue | id) + (1 | item),
+           data = oo_long)
+ranova(m2) #all sig.
+m3 <- lmer(value ~ viscue * verbcue * time + (verbcue | id) + (1 | item),
+           data = oo_long)
+ranova(m3)#all sig.
+m4 <- lmer(value ~ viscue * verbcue * time +  (time | id) + (time | item),
+           data = oo_long)
+ranova(m4)#only time | id is sig.
+m5 <- lmer(value ~ viscue * verbcue * time + (viscue | id) + (verbcue | id) + (time | id) + (1 | item),   data = oo_long)
+ranova(m5)
+
+
+summary(m5)
+msummary(list(
+  "random intercept" = m1,
+  "full model" = m5
+))
+```
+
+```{r plot, echo=FALSE}
+p1 <- ggplot(oo_long, aes(x = time, y = value)) + 
+  geom_point() + 
+  geom_line(aes(group = id)) +  # add lines to connect the data for each person
+  # add a mean trajectory
+  stat_summary(fun = "mean", col = "red", size = 1, geom = "line")
+p1
+```
+The model showed a main effect of time on participants' appetitive activation (indexed by oo value). Significant random slopes of visual cues, verbal cues, and time across persons indicated that the effect of visual cues, verbal cues, and time varied across participants. 
+
+
+
