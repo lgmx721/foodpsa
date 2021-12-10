@@ -14,7 +14,7 @@ Item level IV2: verbal cues (2 levels: encouragement frame and discouragement fr
 Equation for the appetitive response (DV, indexed by oo); 
 $$
 \begin{aligned}
-  \text{oo}_{i(j,k)}) & = \gamma_{00} \\ 
+  \text{oo}_{i(j,k)} & = \gamma_{00} \\ 
                         & + \gamma_{10} \text{visual}_{k} + \gamma_{20} \text{verbal}_{k} + \gamma_{30} \text{time}_{k}\\
                         & + \gamma_{40} \text{visual}_{k} \times \text{time}_{k} + \gamma_{50} \text{verbal}_{k} \times \text{time}_{k} + \gamma_{60} \text{visual}_{k} \times \text{verbal}_{k}+ \gamma_{70} \text{visual}_{k} \times \text{verbal}_{k}\times \text{time}_{k}\\
                         & + u_{0j} + u_{1j} \text{visual}_{k} + u_{2j} \text{verbal}_{k} + u_{3j} \text{time}_{k} +  u_{4j} \text{visual}_{k} \times \text{verbal}_{k}+ u_{5j} \text{visual}_{k} \times \text{verbal}_{k}\times \text{time}_{k} \\
@@ -36,6 +36,8 @@ library(MuMIn)  # for R^2
 library(sjPlot)  # for plotting effects
 library(emmeans)  # for marginal means
 library(modelsummary)  # for making tables
+library(dplyr)
+library(psych)
 theme_set(theme_bw())  # Theme; just my personal preference
 ```
 
@@ -45,6 +47,10 @@ theme_set(theme_bw())  # Theme; just my personal preference
 oo <- read_sav(here("data_files", "oo_survey.sav"))
 oo
 colnames(oo)
+
+corr <- read_sav(here("data_files", "corr_survey.sav"))
+corr
+colnames(corr)
 ```
 8 items:
 h_do_drink
@@ -83,23 +89,53 @@ oo_long <- oo %>%
   )%>%
 unite(item, viscue, verbcue, type, remove = FALSE)
 oo_long 
+
+corr_long <- corr %>%
+  select(2, 9:20, 33:44, 57:68, 81:92, 105:116, 129:140, 153:164, 177:188, 195:232)%>%
+  pivot_longer(
+    c(h_do_drink_t1:h_do_drink_t12, j_do_snack_t1:j_do_snack_t12,h_dont_snack_t1:h_dont_snack_t12,j_dont_drink_t1:j_dont_drink_t12, h_do_snack_t1:h_do_snack_t12, j_do_drink_t1:j_do_drink_t12, h_dont_drink_t1:h_dont_drink_t12, j_dont_snack_t1:j_dont_snack_t12),  # variables that are repeated measures
+    # Convert 8 columns to 3: 2 columns each for anti/read (.value), and
+    # one column for time
+    names_to = c("viscue", "verbcue", "type", "time"),
+    # Extract the names "anti"/"read" from the names of the variables for the
+    # value columns, and then the number to the "time" column
+   names_pattern = "(h|j)_(do|dont)_(drink|snack)_t(.*)",
+    # Convert the "time" column to integers
+    names_transform = list(time = as.integer)
+  )%>%
+unite(item, viscue, verbcue, type, remove = FALSE)
+corr_long 
+
+write.csv(oo_long, "oo_long.csv")
+oo_long <- read.csv(here("data_files", "oo_long_withimage.csv"))
+
+write.csv(corr_long, "corr_long.csv")
+corr_long <- read.csv(here("data_files", "corr_long.csv"))
+
+oo_corr <- read.csv(here("data_files", "oo_corr_long.csv"))
 ```
 
 ```{r models, echo=FALSE}
-m1 <- lmer(value ~  (1 | id) + (1 | item),
-           data = oo_long)
+m1 <- lmer(corr ~  (1 | id) + (1 | image),
+           data = oo_corr)
 ranova(m1) #all sig.
-m2 <- lmer(value ~ viscue * verbcue * time + (viscue | id) + (1 | item),
-           data = oo_long)
-ranova(m2) #all sig.
-m3 <- lmer(value ~ viscue * verbcue * time + (verbcue | id) + (1 | item),
+m2 <- lmer(corr ~ verbcue+time + (1| id)+ (1 | image),
+           data = oo_corr)
+ranova(m2)
+summary(m2)
+m3 <- lmer(value ~ viscue * verbcue * time + (verbcue | id) + (1 | image),
            data = oo_long)
 ranova(m3)#all sig.
-m4 <- lmer(value ~ viscue * verbcue * time +  (time | id) + (time | item),
+m4 <- lmer(value ~ viscue * verbcue * time +  (viscue | id) + (1 | image),
            data = oo_long)
-ranova(m4)#only time | id is sig.
-m5 <- lmer(value ~ viscue * verbcue * time + (viscue | id) + (verbcue | id) + (time | id) + (1 | item),   data = oo_long)
-ranova(m5)
+ranova(m4)#all sig.; failed to converge
+
+m5 <- lmer(value ~ viscue * verbcue * time +  (time | id) + (1 | image),
+           data = oo_long)
+ranova(m5)#all sig.; failed to converge
+
+m6 <- lmer(value ~ viscue * verbcue * time + (viscue | id) + (verbcue | id) + (time | id) + (1 | image),   data = oo_long)
+ranova(m6)
 
 
 summary(m5)
@@ -109,8 +145,155 @@ msummary(list(
 ))
 ```
 
+```{r Healthy subset, echo=FALSE}
+h <- oo_corr[which(oo_corr$viscue=='h'), ]
+h
+
+h$time2 <- h$time * h$time
+h$time3 <- h$time2 * h$time
+
+h1 <- lmer(oo ~  time + (1 | id) + (1 | image),
+           data = h)
+summary(h1) #all sig.
+
+h2 <- lmer(corr ~ time + (1| id)+ (1 | image),
+           data = h)
+summary(h2)
+
+
+h_time <- aggregate(h$value~h$time, FUN=mean)
+names(h_time)[names(h_time) == "h$time"] <- "time"
+names(h_time)[names(h_time) == "h$value"] <- "value"
+
+p1 <- ggplot(data=h_time, aes(x=time, y=value)) +
+  geom_line()+
+  geom_point() 
+p1
+p1 + scale_x_continuous(breaks = seq(1, 12, by = 1))
+```
+
+```{r Junk subset, echo=FALSE}
+j <- oo_corr[which(oo_corr$viscue=='j'), ]
+j
+
+j$time2 <- j$time * j$time
+j$time3 <- j$time2 * j$time
+
+j1 <- lmer(oo ~  time + (1 | id) + (1 | image),
+           data = j)
+summary(j1) #all sig.
+
+j2 <- lmer(corr ~  time + (1 | id) + (1 | image),
+           data = j)
+summary(j2)
+```
+```{r Do subset, echo=FALSE}
+do <- oo_corr[which(oo_corr$verbcue == 'do'), ]
+do
+
+do$time2 <- do$time * do$time
+do$time3 <- do$time2 * do$time
+
+do1 <- lmer(oo ~  time + (1 | id) + (1 | image),
+           data = do)
+summary(do1) #all sig.
+
+do2 <- lmer(corr ~  time + (1 | id) + (1 | image),
+           data = do)
+summary(do2)
+```
+```{r Dont subset, echo=FALSE}
+dont <- oo_corr[which(oo_corr$verbcue == 'dont'), ]
+dont
+
+dont$time2 <- dont$time * dont$time
+dont$time3 <- dont$time2 * dont$time
+
+dont1 <- lmer(oo ~  time + (1 | id) + (1 | image),
+           data = dont)
+summary(dont1) #all sig.
+
+dont2 <- lmer(corr ~  time + (1 | id) + (1 | image),
+           data = dont)
+summary(dont2)
+```
+
+
+```{r Healthy X Do subset, echo=FALSE}
+h_do <- oo_long[which(oo_long$viscue=='h'
+& oo_long$verbcue == 'do'), ]
+h_do
+
+h_do$time2 <- h_do$time * h_do$time
+h_do$time3 <- h_do$time2 * h_do$time
+
+hdo1 <- lmer(value ~  (1 | id) + (1 | image),
+           data = h_do)
+ranova(hdo1) #all sig.
+
+hdo2 <- lmer(value ~ time + (1| id),
+           data = h_do)
+summary(hdo2)
+```
+
+```{r Junk X Dont subset, echo=FALSE}
+j_dont <- oo_long[which(oo_long$viscue=='j'
+& oo_long$verbcue == 'dont'), ]
+j_dont
+
+j_dont$time2 <- j_dont$time * j_dont$time
+j_dont$time3 <- j_dont$time2 * j_dont$time
+
+jdont1 <- lmer(value ~  (1 | id) + (1 | image),
+           data = j_dont)
+ranova(jdont1) #all sig.
+
+jdont2 <- lmer(value ~ time + time2+ time3+
+                (1| id)+ (1 | image),
+           data = j_dont)
+summary(jdont2)
+```
+
+```{r Healthy X Dont subset, echo=FALSE}
+h_dont <- oo_long[which(oo_long$viscue=='h'
+& oo_long$verbcue == 'dont'), ]
+h_dont
+
+h_dont$time2 <- h_dont$time * h_dont$time
+h_dont$time3 <- h_dont$time2 * h_dont$time
+
+hdont1 <- lmer(value ~  (1 | id) + (1 | image),
+           data = h_dont)
+ranova(hdont1) #all sig.
+
+hdont2 <- lmer(value ~ time + time2+
+                (1| id)+ (1 | image),
+           data = h_dont)
+summary(hdont2)
+
+####how to interpret the sig. after higher level time was added
+####how to get effect size
+```
+
+```{r Junk X Do subset, echo=FALSE}
+j_do <- oo_long[which(oo_long$viscue=='j'
+& oo_long$verbcue == 'do'), ]
+j_do
+
+j_do$time2 <- j_do$time * j_do$time
+j_do$time3 <- j_do$time2 * j_do$time
+
+jdo1 <- lmer(value ~  (1 | id) + (1 | image),
+           data = j_do)
+ranova(jdo1) #all sig.
+
+jdo2 <- lmer(value ~ time + time2 + time3 + (1| id),
+           data = j_do)
+summary(jdo2)
+```
+
 ```{r plot, echo=FALSE}
-p1 <- ggplot(oo_long, aes(x = time, y = value)) + 
+p1 <- ggplot(j_dont, aes(x = time, y = value)) + 
   geom_point() + 
   geom_line(aes(group = id)) +  # add lines to connect the data for each person
   # add a mean trajectory
@@ -120,4 +303,22 @@ p1
 The model showed a main effect of time on participants' appetitive activation (indexed by oo value). Significant random slopes of visual cues, verbal cues, and time across persons indicated that the effect of visual cues, verbal cues, and time varied across participants. 
 
 
-
+####double check mean of each category
+```{r check mean, echo=FALSE}
+mean(data.matrix(oo_long[oo_long$viscue == "h","value"]))
+mean(data.matrix(oo_long[oo_long$viscue == "j","value"]))
+mean(data.matrix(oo_long[oo_long$verbcue == "do","value"]))
+mean(data.matrix(oo_long[oo_long$verbcue == "dont","value"]))
+mean(data.matrix(oo_long[oo_long$time == "1","value"]))
+mean(data.matrix(oo_long[oo_long$time == "2","value"]))
+mean(data.matrix(oo_long[oo_long$time == "3","value"]))
+mean(data.matrix(oo_long[oo_long$time == "4","value"]))
+mean(data.matrix(oo_long[oo_long$time == "5","value"]))
+mean(data.matrix(oo_long[oo_long$time == "6","value"]))
+mean(data.matrix(oo_long[oo_long$time == "7","value"]))
+mean(data.matrix(oo_long[oo_long$time == "8","value"]))
+mean(data.matrix(oo_long[oo_long$time == "9","value"]))
+mean(data.matrix(oo_long[oo_long$time == "10","value"]))
+mean(data.matrix(oo_long[oo_long$time == "11","value"]))
+mean(data.matrix(oo_long[oo_long$time == "12","value"]))
+```
